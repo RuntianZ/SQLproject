@@ -16,7 +16,7 @@ create table stk.my_stock
     volume    int,
     avg_price smallmoney,
     profit    smallmoney,
-    primary key (stock_id),
+    primary key (stock_id)
 )
 go
 
@@ -29,9 +29,50 @@ create table stk.trans
     amount      int,
     sell_or_buy char,
     primary key (trans_id),
-    check (sell_or_buy in ('S', 'B')),
+    check (sell_or_buy in ('S', 'B'))
 )
 go
+
+create trigger TRIG_CK_volume
+    on stk.trans
+    instead of insert
+    as
+begin
+    select *
+    into #tmp1
+    from (
+             select stock_id, date, -amount as amount
+             from inserted
+             where sell_or_buy = 'B'
+             union
+             select stock_id, date, amount
+             from inserted
+             where sell_or_buy = 'S') T
+
+    declare
+        @a as int = isnull((
+            select count(*)
+            from ((
+                      select A.stock_id, sum(B.amount) amount_sum
+                      from #tmp1 A,
+                           #tmp1 B
+                      where B.date <= A.date
+                      group by A.stock_id
+                  ) S
+                     left outer join stk.my_stock on S.stock_id = stk.my_stock.stock_id)
+            where (volume is null and amount_sum > 0)
+               or amount_sum > volume), 0);
+
+    if @a = 0
+        insert into stk.trans
+        select *
+        from inserted
+    else
+        raiserror('Insert failed: Sell more than bought.', 16, 1);
+
+    drop table #tmp1
+end
+
 
 -- Create trigger: update my_stock after records insterted into trans
 create trigger TRIG_trans_update
@@ -142,40 +183,10 @@ values (2, 1, 2, 11, 500, 'B')
 insert into stk.trans
 values (3, 1, 3, 12, 800, 'S')
 insert into stk.trans
-values (4, 1, 4, 12, 700, 'S')
+values (4, 1, 4, 12, 1000, 'S')
 insert into stk.trans
 values (5, 1, 5, 9, 1000, 'B')
 insert into stk.trans
 values (6, 1, 6, 12, 800, 'S')
 insert into stk.trans
 values (7, 1, 7, 7, 800, 'S')
-
-/*
--- Test
-delete
-from stk.my_stock
-delete
-from stk.trans
-insert into stk.my_stock
-values ('001', 0, 0, 0);
-insert into stk.my_stock
-values ('002', 0, 0, 0);
-insert into stk.trans
-values ('1', '001', '5-1-2019', 10, 1000, 'B');
-insert into stk.trans
-values ('2', '001', '5-2-2019', 11, 500, 'B');
-insert into stk.trans
-values ('3', '001', '5-3-2019', 12, 800, 'S');
---insert into stk.trans values ('4', '001', '5-4-2019', 12, 1000, 'S');
-insert into stk.trans
-values ('5', '001', '5-5-2019', 9, 1000, 'B');
-insert into stk.trans
-values ('6', '001', '5-6-2019', 12, 800, 'S');
-insert into stk.trans
-values ('7', '001', '5-7-2019', 7, 800, 'S');
-select *
-from stk.my_stock;
-select *
-from stk.trans;
-go
-*/
