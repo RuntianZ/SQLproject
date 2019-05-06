@@ -123,8 +123,7 @@ begin
     set avg_price = avg_price / volume
     where volume > 0
 
-    update stk.my_stock
-    set avg_price = 0
+    delete from stk.my_stock
     where volume = 0
 
     DECLARE
